@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 // Gate the whole dashboard behind the shared password, EXCEPT the login page,
 // provider webhooks, and the cron endpoint (those authenticate differently).
-const OPEN = ["/login", "/api/webhooks", "/api/cron"];
+const OPEN = ["/login", "/api/webhooks", "/api/cron", "/api/health"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

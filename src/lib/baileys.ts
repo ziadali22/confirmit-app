@@ -27,7 +27,7 @@ type WaState = {
 };
 
 // Survive Next.js hot-reloads in dev.
-const g = globalThis as unknown as { __wa?: WaState };
+const g = globalThis as unknown as { __wa?: WaState; __waSigterm?: boolean };
 const wa: WaState = (g.__wa ??= {
   sock: null,
   status: "disconnected",
@@ -58,6 +58,19 @@ async function connect(): Promise<void> {
   const sock = makeWASocket({ version, auth: state, logger, printQRInTerminal: false });
   wa.sock = sock;
 
+  // On container shutdown (Railway sends SIGTERM before killing), close the
+  // socket cleanly instead of letting it drop — avoids a dirty takeover.
+  if (!g.__waSigterm) {
+    g.__waSigterm = true;
+    process.once("SIGTERM", () => {
+      try {
+        wa.sock?.end(undefined);
+      } catch {
+        /* ignore */
+      }
+    });
+  }
+
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (u) => {
@@ -75,12 +88,18 @@ async function connect(): Promise<void> {
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
       wa.status = "disconnected";
       wa.sock = null;
-      // Reconnect unless we were explicitly logged out.
-      if (code !== DisconnectReason.loggedOut) {
-        setTimeout(() => startWa().catch(() => {}), 3000);
-      } else {
+      if (code === DisconnectReason.loggedOut) {
+        // User unlinked the device — drop the stored session.
         await clearAuthState();
         wa.me = null;
+      } else if (code === DisconnectReason.connectionReplaced) {
+        // Another container took over this session (happens during a Railway
+        // redeploy, which starts the new container before stopping the old).
+        // Do NOT reconnect, or the two fight in a loop and corrupt the session.
+        console.log("WA connection replaced by another instance — standing down.");
+      } else {
+        // Includes restartRequired (515), which fires right after a scan.
+        setTimeout(() => startWa().catch(() => {}), 3000);
       }
     }
   });
@@ -90,14 +109,21 @@ async function connect(): Promise<void> {
     if (type !== "notify") return;
     for (const m of messages) {
       if (m.key.fromMe || !m.message) continue;
-      const from = (m.key.remoteJid || "").split("@")[0];
+      const jid = m.key.remoteJid || "";
+      // WhatsApp sometimes delivers from an @lid id instead of the phone jid;
+      // fall back to the key's phone-number fields when that happens.
+      const key = m.key as { remoteJid?: string; remoteJidAlt?: string; senderPn?: string };
+      let fromJid = jid;
+      if (jid.endsWith("@lid")) fromJid = key.senderPn || key.remoteJidAlt || jid;
+      const from = fromJid.split("@")[0].split(":")[0];
+      console.log("WA inbound from jid=%s resolved=%s", jid, from); // first real test decides @lid handling
       const text =
         m.message.conversation ||
         m.message.extendedTextMessage?.text ||
         m.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
         m.message.buttonsResponseMessage?.selectedButtonId ||
         "";
-      if (!from || !text) continue;
+      if (!from || !/^\d/.test(from) || !text) continue;
       // Lazy import to avoid a circular module load at startup.
       const { handleInboundReply } = await import("./flow");
       await handleInboundReply(from, text.trim()).catch((e) =>

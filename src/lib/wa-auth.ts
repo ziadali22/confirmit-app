@@ -19,11 +19,21 @@ async function readKey(key: string): Promise<unknown | null> {
 
 async function writeKey(key: string, value: unknown): Promise<void> {
   const str = JSON.stringify(value, BufferJSON.replacer);
-  await prisma.waSession.upsert({
-    where: { key },
-    create: { key, value: str },
-    update: { value: str },
-  });
+  try {
+    await prisma.waSession.upsert({
+      where: { key },
+      create: { key, value: str },
+      update: { value: str },
+    });
+  } catch (e) {
+    // Concurrent upserts of the same new key can race on the unique index
+    // (P2002). The row now exists, so a plain update settles it.
+    if ((e as { code?: string }).code === "P2002") {
+      await prisma.waSession.update({ where: { key }, data: { value: str } });
+    } else {
+      throw e;
+    }
+  }
 }
 
 async function removeKey(key: string): Promise<void> {
@@ -55,16 +65,16 @@ export async function loadPrismaAuthState(): Promise<{
           return data;
         },
         set: async (data) => {
-          const tasks: Promise<void>[] = [];
+          // Serialize writes — concurrent upserts of the same key race in Postgres.
           for (const type in data) {
             const typed = data[type as keyof SignalDataTypeMap];
             for (const id in typed) {
               const value = typed[id];
               const key = `${type}-${id}`;
-              tasks.push(value ? writeKey(key, value) : removeKey(key));
+              if (value) await writeKey(key, value);
+              else await removeKey(key);
             }
           }
-          await Promise.all(tasks);
         },
       },
     },

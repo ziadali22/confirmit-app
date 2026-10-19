@@ -22,8 +22,14 @@ export async function launchCampaign(campaignId: number) {
     })).map((r) => r.customerId)
   );
 
+  // On the own-number path, pace sends (randomized) — back-to-back bulk from a
+  // personal number is the fastest way to get it banned.
+  const paced = (campaign.brand.waMode || (campaign.brand.mock ? "mock" : "meta")) === "baileys";
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
   for (const customer of audience) {
     if (alreadySent.has(customer.id)) continue;
+    if (paced) await sleep(3000 + Math.floor(Math.random() * 7000)); // 3–10s
     const first = (customer.name || "").trim().split(" ")[0] || "";
     const text = render(campaign.body, { firstName: first, shopName: campaign.brand.name });
     try {

@@ -151,13 +151,19 @@ export async function handleInboundReply(fromPhone: string, text: string) {
   const opts = JSON.parse(log?.options || "[]") as { rowId: string; label?: string }[];
   if (!opts.length) return;
 
+  // Normalize Arabic-Indic (٠-٩) and Eastern-Arabic (۰-۹) digits to ASCII, since
+  // the number is also used for normal chats and customers may type either.
+  const normalized = text.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+
   let chosen: { rowId: string } | undefined;
-  const digit = text.match(/^\s*(\d+)/);
+  const digit = normalized.match(/^\s*(\d{1,2})\s*$/); // ONLY a bare number selects
   if (digit) {
     chosen = opts[Number(digit[1]) - 1];
   } else {
-    const t = text.toLowerCase();
-    chosen = opts.find((o) => (o.label || "").toLowerCase().includes(t));
+    // Exact label match only — a loose "includes" would match stray chat text.
+    const t = normalized.trim().toLowerCase();
+    chosen = opts.find((o) => (o.label || "").trim().toLowerCase() === t);
   }
   if (chosen) await handleOptionTap(order.id, chosen.rowId);
 }

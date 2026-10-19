@@ -187,11 +187,12 @@ export async function createCampaign(formData: FormData) {
 
 export async function sendCampaign(formData: FormData) {
   const id = Number(formData.get("campaignId"));
-  try {
-    await launchCampaign(id);
-  } catch {
-    await prisma.campaign.update({ where: { id }, data: { status: "draft" } });
-  }
+  await prisma.campaign.update({ where: { id }, data: { status: "sending" } });
+  // Fire-and-forget: paced sends can take minutes, so don't block the request.
+  // The server process is long-lived; statuses update as it runs.
+  void launchCampaign(id).catch(async () => {
+    await prisma.campaign.update({ where: { id }, data: { status: "draft" } }).catch(() => {});
+  });
   revalidatePath("/campaigns");
 }
 
