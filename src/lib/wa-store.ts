@@ -10,7 +10,7 @@
 //
 // The store has to be in the DB, not memory: the retry receipt often arrives
 // after a redeploy, which is exactly when an in-process cache is empty.
-import { proto } from "@whiskeysockets/baileys";
+import { proto, BufferJSON } from "@whiskeysockets/baileys";
 import { prisma } from "./db";
 
 // WhatsApp stops retrying long before this; the window only needs to outlive a
@@ -26,7 +26,12 @@ export async function rememberSentMessage(
 ): Promise<void> {
   let content: string;
   try {
-    content = JSON.stringify(message);
+    // BufferJSON, not plain JSON: protobuf bytes fields (extendedTextMessage's
+    // jpegThumbnail on a link preview, for one) are Uint8Arrays, and plain
+    // JSON turns them into {"0":255,"1":216,...} which protobuf re-encodes
+    // *without* throwing — the bytes just silently vanish. This is the same
+    // serializer the auth state uses, for the same reason.
+    content = JSON.stringify(message, BufferJSON.replacer);
   } catch {
     // Protobuf objects normally serialize cleanly for text messages; if one
     // doesn't, a plain conversation carries the same words to the recipient.
@@ -50,7 +55,7 @@ export async function getSentMessage(id: string): Promise<proto.IMessage | undef
   try {
     const row = await prisma.waSentMessage.findUnique({ where: { id } });
     if (!row) return undefined;
-    return JSON.parse(row.content) as proto.IMessage;
+    return JSON.parse(row.content, BufferJSON.reviver) as proto.IMessage;
   } catch (e) {
     console.error("WA: could not load sent message for retry:", e);
     return undefined;
