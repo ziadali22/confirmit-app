@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Confirm It — WhatsApp order-confirmation dashboard
 
-## Getting Started
+A simple dashboard (built for non-devs) to confirm COD orders over WhatsApp:
+send an interactive list message, the customer taps a payment option, and the
+order is tagged, replied to, and confirmed automatically. Plus saved customers
+and marketing campaigns.
 
-First, run the development server:
+**Stack:** Next.js 15 (App Router, server actions) · Prisma · SQLite (dev) →
+Postgres/D1 (prod). Runs 24/7 on Railway/Render, or on Cloudflare.
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npx prisma migrate dev        # creates the SQLite db
+npm run dev                   # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Log in with the password in `.env` (`DASHBOARD_PASSWORD`, default `confirmit123`).
+On the Orders page click **Seed demo** to get a ready-made message + sample order,
+open it, **Send confirmation**, then tap an option — all in mock mode, no WhatsApp
+account needed.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## The screens (what a merchant uses)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Orders** — create test orders, see status + tags, open the phone simulator.
+- **Order view** — a WhatsApp phone mockup. Send the confirmation; tapping a row
+  runs the real inbound flow (apply tag → send reply → confirm/cancel).
+- **Message** — full control over the list message: header, body (with
+  `{firstName} {shopName} {orderNumber} {total} {currency}` placeholders), section
+  title, button text, and each option's label + order tag + reply + action. Live
+  preview with Meta's character limits enforced.
+- **Campaigns** — send a WhatsApp message to all opted-in customers.
+- **Customers** — every ordering number saved, with a marketing opt-in toggle.
+- **Settings** — your WhatsApp sender number, mock/live toggle, Meta Cloud API
+  credentials, and the webhook URL + verify token to paste into Meta.
 
-## Learn More
+## Going live with real WhatsApp
 
-To learn more about Next.js, take a look at the following resources:
+1. **Settings** → turn **off** mock mode, enter your Meta **Phone number ID**,
+   **App secret**, and **Access token**. Set your sender number.
+2. Copy the **Callback URL** + **Verify token** from Settings into Meta → WhatsApp
+   → Configuration. Localhost can't receive callbacks — expose it first:
+   ```bash
+   cloudflared tunnel --url http://localhost:3000   # or: ngrok http 3000
+   ```
+3. The interactive list is a *session* message — the customer must message your
+   number first (opens the 24-hour window), or you send an approved template.
+4. ⚠️ Registering a number as a WhatsApp Business sender removes it from the normal
+   WhatsApp app. Use a spare number, not your personal one.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 24/7 hosting
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The automation needs a always-running server + a scheduler. The scheduler is
+built from stored state (`Order.nextActionAt`) and exposed at `/api/cron` — no
+in-memory timers, so it survives restarts. Point any cron at it.
 
-## Deploy on Vercel
+**Railway / Render (simplest):**
+- Deploy the Next app. Add a Postgres add-on and set `DATABASE_URL` (switch
+  `prisma/schema.prisma` datasource `provider` to `postgresql`).
+- Add a scheduled job hitting `GET /api/cron` every few minutes.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Cloudflare (also works now that it's JavaScript):**
+- Deploy with `@opennextjs/cloudflare`.
+- Use **D1** for the database (SQLite-compatible; Prisma via its D1 driver adapter).
+- Add a **Cron Trigger** that calls `/api/cron`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`/api/webhooks/*` and `/api/cron` are intentionally outside the password gate; the
+rest of the dashboard is behind `DASHBOARD_PASSWORD`.
+
+## What's intentionally left out (v1)
+
+Voice-call fallback, courier APIs (Bosta/Aramex), Paymob, and abandoned-cart
+recovery are not in the UI — they can be added behind the same provider/flow
+pattern (`src/lib/whatsapp.ts`, `src/lib/flow.ts`).

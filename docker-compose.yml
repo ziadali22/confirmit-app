@@ -1,0 +1,18 @@
+# Local Postgres for development (mirrors the Railway Postgres in production).
+#   docker compose up -d   -> starts Postgres on localhost:5432
+# Then DATABASE_URL in .env points at it (see .env.example).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: confirmit
+      POSTGRES_PASSWORD: confirmit
+      POSTGRES_DB: confirmit
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -1,0 +1,148 @@
+// Confirm It — data model (SQLite for dev; swap datasource to Postgres/D1 for prod).
+// Enums + JSON are stored as plain strings because SQLite+Prisma doesn't support
+// native enums/JSON; app code validates against the constants in src/lib/constants.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One per deployment (single store). Holds the WhatsApp connection settings.
+model Brand {
+  id             Int      @id @default(autoincrement())
+  name           String   @default("My Store")
+  whatsappNumber String   @default("") // display, E.164 e.g. +2015...
+  // Live WhatsApp (Meta Cloud API) connection. Empty => mock mode.
+  mock           Boolean  @default(true)
+  accessToken    String   @default("")
+  phoneNumberId  String   @default("")
+  appSecret      String   @default("")
+  verifyToken    String   @default("")
+  createdAt      DateTime @default(now())
+
+  customers Customer[]
+  orders    Order[]
+  template  MessageTemplate?
+  logs      MessageLog[]
+  campaigns Campaign[]
+}
+
+model Customer {
+  id        Int       @id @default(autoincrement())
+  brandId   Int
+  brand     Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  name      String    @default("")
+  phone     String // normalized E.164
+  optIn     Boolean   @default(true) // marketing consent
+  optedOutAt DateTime?
+  createdAt DateTime  @default(now())
+
+  orders            Order[]
+  campaignMessages  CampaignRecipient[]
+
+  @@unique([brandId, phone])
+}
+
+model Order {
+  id            Int      @id @default(autoincrement())
+  brandId       Int
+  brand         Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  customerId    Int
+  customer      Customer @relation(fields: [customerId], references: [id])
+  externalId    String   @default("")
+  total         Float    @default(0)
+  currency      String   @default("EGP")
+  status        String   @default("received") // see ORDER_STATUS
+  tags          String   @default("[]")        // JSON array of strings
+  cancelReason  String   @default("")
+  lastWaMessageId String @default("")          // id of the sent list message
+  nextActionAt  DateTime?                       // scheduler: when to send a reminder
+  reminded      Boolean  @default(false)
+  lastError     String   @default("")           // last send failure, shown in the UI
+  createdAt     DateTime @default(now())
+
+  confirmations Confirmation[]
+  logs          MessageLog[]
+
+  @@index([brandId, status])
+}
+
+model Confirmation {
+  id              Int      @id @default(autoincrement())
+  orderId         Int
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  channel         String   @default("whatsapp")
+  outcome         String   @default("pending") // pending|confirm|cancel|no_reply
+  providerMessageId String @default("")
+  sentAt          DateTime @default(now())
+  repliedAt       DateTime?
+}
+
+/// The configurable interactive-list message (one per brand).
+model MessageTemplate {
+  id           Int      @id @default(autoincrement())
+  brandId      Int      @unique
+  brand        Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  header       String   @default("Order Confirmation Required")
+  body         String   @default("")
+  sectionTitle String   @default("Order Confirmation")
+  buttonText   String   @default("Select")
+  options      MessageOption[]
+}
+
+model MessageOption {
+  id              Int    @id @default(autoincrement())
+  templateId      Int
+  template        MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  position        Int    @default(0)
+  label           String // row title, <=24 chars
+  orderTag        String @default("") // tag added to the order when picked
+  responseMessage String @default("") // reply sent to the customer
+  action          String @default("custom") // confirm|cancel|custom
+}
+
+model MessageLog {
+  id        Int      @id @default(autoincrement())
+  brandId   Int
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  orderId   Int?
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  phone     String
+  direction String // out|in
+  kind      String  @default("")
+  body      String  @default("")
+  options   String  @default("[]") // JSON [{rowId,label}]
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+model Campaign {
+  id        Int      @id @default(autoincrement())
+  brandId   Int
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  name      String
+  body      String   @default("") // message text (placeholders allowed)
+  status    String   @default("draft") // draft|sending|sent
+  createdAt DateTime @default(now())
+
+  recipients CampaignRecipient[]
+}
+
+model CampaignRecipient {
+  id         Int      @id @default(autoincrement())
+  campaignId Int
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status     String   @default("queued") // queued|sent|failed|skipped
+  messageId  String   @default("")
+  error      String   @default("")
+  sentAt     DateTime?
+
+  @@unique([campaignId, customerId])
+}
