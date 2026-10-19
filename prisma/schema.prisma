@@ -157,3 +157,17 @@ model CampaignRecipient {
 
   @@unique([campaignId, customerId])
 }
+
+/// Bodies of outbound WhatsApp messages, kept so that a recipient's retry
+/// receipt can be answered by re-encrypting and resending the original
+/// (Baileys `getMessage`). Without this, a message the recipient failed to
+/// decrypt is stuck on "Waiting for this message" permanently. Pruned after a
+/// week — see RETENTION_DAYS in src/lib/wa-store.ts.
+model WaSentMessage {
+  id        String   @id // the WhatsApp message id (sent.key.id)
+  jid       String
+  content   String // JSON-serialized proto.IMessage
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

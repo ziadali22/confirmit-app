@@ -15,6 +15,7 @@ import { Boom } from "@hapi/boom";
 import pino from "pino";
 import QRCode from "qrcode";
 import { loadPrismaAuthState, clearAuthState } from "./wa-auth";
+import { rememberSentMessage, getSentMessage, pruneSentMessages } from "./wa-store";
 
 type Status = "disconnected" | "connecting" | "qr" | "connected";
 
@@ -36,7 +37,11 @@ const wa: WaState = (g.__wa ??= {
   me: null,
 });
 
-const logger = pino({ level: "silent" });
+// Baileys logs the decryption/retry story we need to debug "Waiting for this
+// message" on the recipient side ("recv retry request, but message not
+// available", "Failed to decrypt message", session churn). Silencing it hides
+// the only evidence, so default to warn and allow WA_LOG_LEVEL=debug on Railway.
+const logger = pino({ level: process.env.WA_LOG_LEVEL || "warn" });
 
 export function waStatus() {
   return { status: wa.status, qrDataUrl: wa.qrDataUrl, me: wa.me };
@@ -55,8 +60,22 @@ async function connect(): Promise<void> {
   const { state, saveCreds } = await loadPrismaAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
-  const sock = makeWASocket({ version, auth: state, logger, printQRInTerminal: false });
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    logger,
+    printQRInTerminal: false,
+    // When a recipient can't decrypt one of our messages it asks us to resend.
+    // Baileys answers that by looking the original up here; returning undefined
+    // (the library default) leaves the recipient on "Waiting for this message"
+    // forever. The lookup hits the DB because the retry often arrives after a
+    // redeploy, when any in-process cache would be empty.
+    getMessage: async (key) => (key.id ? await getSentMessage(key.id) : undefined),
+  });
   wa.sock = sock;
+
+  // Opportunistic cleanup of bodies past the retention window.
+  void pruneSentMessages();
 
   // On container shutdown (Railway sends SIGTERM before killing), close the
   // socket cleanly instead of letting it drop — avoids a dirty takeover.
@@ -138,7 +157,12 @@ export async function waSendText(toE164: string, text: string): Promise<string> 
   if (!wa.sock || wa.status !== "connected") throw new Error("WhatsApp not connected — scan the QR in Settings");
   const jid = `${toE164.replace(/^\+/, "")}@s.whatsapp.net`;
   const sent = await wa.sock.sendMessage(jid, { text });
-  return sent?.key?.id || "";
+  const id = sent?.key?.id || "";
+  // Keep the body so we can answer a retry receipt if this one fails to
+  // decrypt on their end. Must happen before we return: the receipt can
+  // arrive within seconds.
+  if (id && sent?.message) await rememberSentMessage(id, jid, sent.message, text);
+  return id;
 }
 
 export async function logoutWa(): Promise<void> {
