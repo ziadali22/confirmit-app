@@ -1,9 +1,10 @@
 import Link from "next/link";
 import Shell from "@/components/Shell";
 import Icon from "@/components/Icon";
-import { prisma, getBrand } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { STATUS_LABEL } from "@/lib/constants";
-import { waToHtml } from "@/lib/messaging";
+import { waToHtml, renderMessage, numberedMenu } from "@/lib/messaging";
+import { modeOf } from "@/lib/whatsapp";
 import { money, STATUS_TONE } from "@/lib/format";
 import { sendConfirmationAction, tapOptionAction } from "@/app/actions";
 
@@ -27,7 +28,14 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const order = await prisma.order.findUnique({
     where: { id: Number(id) },
-    include: { customer: true, logs: { orderBy: { id: "asc" } }, confirmations: { orderBy: { id: "desc" } } },
+    include: {
+      customer: true,
+      logs: { orderBy: { id: "asc" } },
+      confirmations: { orderBy: { id: "desc" } },
+      // The order's OWN brand — getBrand() is a findFirst with no ordering, so
+      // it returns an arbitrary brand and would show another brand's template.
+      brand: { include: { template: { include: { options: true } } } },
+    },
   });
   if (!order) {
     return (
@@ -37,7 +45,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
       </Shell>
     );
   }
-  const brand = await getBrand();
+  const brand = order.brand;
   const tags = JSON.parse(order.tags || "[]") as string[];
   const buttonText = brand.template?.buttonText || "Select";
   const actionFor = (label: string) => brand.template?.options.find((o) => o.label === label)?.action ?? "custom";
@@ -45,6 +53,16 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   const lastOpts = lastOut ? (JSON.parse(lastOut.options) as { rowId: string; label: string }[]) : [];
   const sends = order.confirmations.length;
   const waiting = order.status === "confirming";
+
+  // Nothing sent yet? Show what this customer WILL receive, rendered with
+  // their own name / order number / total rather than sample data. The shape
+  // follows the transport: the Meta path sends an interactive list, while the
+  // own-number (Baileys) and mock paths send a numbered text menu instead.
+  const preview =
+    order.logs.length === 0 && brand.template
+      ? renderMessage({ ...order, brand: { name: brand.name } }, brand.template)
+      : null;
+  const previewIsList = modeOf(brand) === "meta";
 
   return (
     <Shell>
@@ -80,8 +98,39 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             <p className="sub" style={{ fontSize: 13 }}>What the customer sees on WhatsApp.</p>
           </div>
           <div className="chat panel">
-            <span className="day">TODAY</span>
-            {order.logs.length === 0 && <span className="sys"><Icon name="info" size={13} /> Nothing sent yet. Send the confirmation to start.</span>}
+            {order.logs.length > 0 && <span className="day">TODAY</span>}
+            {order.logs.length === 0 && (
+              preview ? (
+                <>
+                  <span className="sys">
+                    <Icon name="info" size={13} /> Not sent yet — this is what {order.customer.name || "the customer"} will get.
+                  </span>
+                  <div className="bubble in wide ghost" dir="auto">
+                    {previewIsList ? (
+                      <>
+                        {preview.header && <span className="head">{preview.header}</span>}
+                        <span dangerouslySetInnerHTML={{ __html: waToHtml(preview.body) }} />
+                        <span className="list-btn"><Icon name="list" size={15} /> {buttonText}</span>
+                      </>
+                    ) : (
+                      <span dangerouslySetInnerHTML={{ __html: waToHtml(numberedMenu(preview)) }} />
+                    )}
+                  </div>
+                  {previewIsList && preview.options.length > 0 && (
+                    <div className="sheet ghost" dir="auto">
+                      <div className="st">{preview.sectionTitle || "Options"}</div>
+                      {preview.options.map((o) => (
+                        <div key={o.rowId} className="opt">{o.label}<i /></div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <span className="sys">
+                  <Icon name="info" size={13} /> No message template yet — <Link href="/message">set one up</Link> first.
+                </span>
+              )
+            )}
             {order.logs.map((log) => {
               const opts = JSON.parse(log.options || "[]") as { rowId: string; label: string }[];
               if (log.direction === "out") {

@@ -15,7 +15,7 @@ type Brand = {
   phoneNumberId: string;
 };
 
-function modeOf(brand: Brand): string {
+export function modeOf(brand: Brand): string {
   return brand.waMode || (brand.mock ? "mock" : "meta");
 }
 

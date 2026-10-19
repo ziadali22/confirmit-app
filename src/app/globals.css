@@ -307,3 +307,7 @@ td.end, th.end { text-align: right; }
   .qr-panel { flex-direction: column; }
   .page-head { flex-direction: column; align-items: flex-start; }
 }
+
+/* Unsent template preview in an order's empty conversation — a real bubble,
+   faded and dashed so it can't be mistaken for a message that went out. */
+.chat .ghost { opacity: .58; box-shadow: none; outline: 1px dashed rgba(17, 27, 33, .3); outline-offset: 2px; }
