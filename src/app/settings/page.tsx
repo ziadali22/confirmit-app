@@ -2,6 +2,7 @@ import Shell from "@/components/Shell";
 import { getBrand } from "@/lib/db";
 import { saveSettings } from "@/app/actions";
 import { headers } from "next/headers";
+import ConnectNumber from "@/components/ConnectNumber";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,9 @@ export default async function SettingsPage() {
   return (
     <Shell>
       <h1>WhatsApp connection</h1>
-      <p className="sub">Connect your WhatsApp number so Confirm It can send on your behalf. Leave “mock mode” on to test without a real account.</p>
+      <p className="sub">Choose how messages go out: your own number (QR), the official Meta API, or mock mode for testing.</p>
+
+      <ConnectNumber initialMode={brand.waMode} />
 
       <form action={saveSettings}>
         <div className="card">

@@ -128,6 +128,41 @@ export async function handleOptionTap(orderId: number, rowId: string) {
 }
 
 /**
+ * Inbound reply from the customer (Baileys own-number path). `text` is what they
+ * typed; a leading digit selects the option by position in the sent menu.
+ */
+export async function handleInboundReply(fromPhone: string, text: string) {
+  const phone = fromPhone.startsWith("+") ? fromPhone : `+${fromPhone}`;
+  const order = await prisma.order.findFirst({
+    where: { status: ORDER_STATUS.CONFIRMING, customer: { phone } },
+    orderBy: { id: "desc" },
+  });
+  if (!order) return;
+
+  await prisma.messageLog.create({
+    data: { brandId: order.brandId, orderId: order.id, phone, direction: "in", kind: "reply", body: text },
+  });
+
+  // Map the reply to a row id from what was actually sent.
+  const log = await prisma.messageLog.findFirst({
+    where: { orderId: order.id, direction: "out", kind: "confirmation" },
+    orderBy: { id: "desc" },
+  });
+  const opts = JSON.parse(log?.options || "[]") as { rowId: string; label?: string }[];
+  if (!opts.length) return;
+
+  let chosen: { rowId: string } | undefined;
+  const digit = text.match(/^\s*(\d+)/);
+  if (digit) {
+    chosen = opts[Number(digit[1]) - 1];
+  } else {
+    const t = text.toLowerCase();
+    chosen = opts.find((o) => (o.label || "").toLowerCase().includes(t));
+  }
+  if (chosen) await handleOptionTap(order.id, chosen.rowId);
+}
+
+/**
  * Scheduler tick — run from /api/cron (works on Railway cron and Cloudflare Cron
  * Triggers). Sends one reminder to orders still awaiting a reply past their
  * nextActionAt. No in-memory timers, so it survives restarts.

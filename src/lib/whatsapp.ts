@@ -3,16 +3,21 @@
 
 import { prisma } from "./db";
 import { normalizePhone } from "./phone";
-import type { RenderedMessage } from "./messaging";
+import { numberedMenu, type RenderedMessage } from "./messaging";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
 type Brand = {
   id: number;
   mock: boolean;
+  waMode?: string; // "mock" | "baileys" | "meta"
   accessToken: string;
   phoneNumberId: string;
 };
+
+function modeOf(brand: Brand): string {
+  return brand.waMode || (brand.mock ? "mock" : "meta");
+}
 
 async function logOut(
   brandId: number,
@@ -20,7 +25,7 @@ async function logOut(
   phone: string,
   body: string,
   kind: string,
-  options: { rowId: string; label: string }[] = []
+  options: { rowId: string; label: string; tag?: string; response?: string; action?: string }[] = []
 ) {
   await prisma.messageLog.create({
     data: {
@@ -69,8 +74,18 @@ export async function sendListMessage(
     action: o.action,
   }));
 
-  if (brand.mock) {
+  const mode = modeOf(brand);
+
+  if (mode === "mock") {
     const id = `mock-${Date.now()}`;
+    await logOut(brand.id, orderId, phone, msg.body, "confirmation", optionMeta);
+    return id;
+  }
+
+  if (mode === "baileys") {
+    // Own-number path: buttons don't render, so send a numbered text menu.
+    const { waSendText } = await import("./baileys");
+    const id = await waSendText(phone, numberedMenu(msg));
     await logOut(brand.id, orderId, phone, msg.body, "confirmation", optionMeta);
     return id;
   }
@@ -105,8 +120,15 @@ export async function sendText(
   kind = "reply"
 ): Promise<string> {
   const phone = normalizePhone(to);
-  if (brand.mock) {
+  const mode = modeOf(brand);
+  if (mode === "mock") {
     const id = `mock-${Date.now()}`;
+    await logOut(brand.id, orderId, phone, text, kind);
+    return id;
+  }
+  if (mode === "baileys") {
+    const { waSendText } = await import("./baileys");
+    const id = await waSendText(phone, text);
     await logOut(brand.id, orderId, phone, text, kind);
     return id;
   }

@@ -40,6 +40,7 @@ export async function saveSettings(formData: FormData) {
       name: String(formData.get("name") || brand.name),
       whatsappNumber: String(formData.get("whatsappNumber") || ""),
       mock,
+      waMode: mock ? "mock" : "meta",
       phoneNumberId,
       appSecret,
       verifyToken: String(formData.get("verifyToken") || "") || brand.verifyToken || randomToken(),
@@ -192,6 +193,23 @@ export async function sendCampaign(formData: FormData) {
     await prisma.campaign.update({ where: { id }, data: { status: "draft" } });
   }
   revalidatePath("/campaigns");
+}
+
+// ---- own-number (Baileys) connection ----
+export async function connectOwnNumber() {
+  const brand = await getBrand();
+  await prisma.brand.update({ where: { id: brand.id }, data: { waMode: "baileys", mock: false } });
+  const { startWa } = await import("@/lib/baileys");
+  await startWa(); // begins the session; QR appears via /api/wa/status
+  revalidatePath("/settings");
+}
+
+export async function disconnectOwnNumber() {
+  const brand = await getBrand();
+  const { logoutWa } = await import("@/lib/baileys");
+  await logoutWa();
+  await prisma.brand.update({ where: { id: brand.id }, data: { waMode: "mock", mock: true } });
+  revalidatePath("/settings");
 }
 
 // ---- demo ----

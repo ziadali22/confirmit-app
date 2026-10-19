@@ -16,7 +16,9 @@ model Brand {
   id             Int      @id @default(autoincrement())
   name           String   @default("My Store")
   whatsappNumber String   @default("") // display, E.164 e.g. +2015...
-  // Live WhatsApp (Meta Cloud API) connection. Empty => mock mode.
+  // How messages are sent: "mock" (simulate) | "baileys" (own number, QR) | "meta" (Cloud API).
+  waMode         String   @default("mock")
+  // Kept for the Meta path. mock=true also implied when waMode="mock".
   mock           Boolean  @default(true)
   accessToken    String   @default("")
   phoneNumberId  String   @default("")
@@ -131,6 +133,15 @@ model Campaign {
   createdAt DateTime @default(now())
 
   recipients CampaignRecipient[]
+}
+
+/// Baileys (WhatsApp Web) auth state, stored in the DB so the linked session
+/// survives redeploys. One row per credential key.
+model WaSession {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   // JSON (BufferJSON-encoded)
+  updatedAt DateTime @updatedAt
 }
 
 model CampaignRecipient {

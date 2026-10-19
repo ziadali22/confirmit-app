@@ -86,6 +86,24 @@ export function renderMessage(order: OrderLike, template: TemplateLike): Rendere
   };
 }
 
+/**
+ * Render the confirmation as a numbered text menu — used by the Baileys
+ * (own-number) path, where interactive buttons don't render. The customer
+ * replies with a digit, which inbound matching maps back to the option.
+ */
+export function numberedMenu(msg: RenderedMessage): string {
+  const lines: string[] = [];
+  if (msg.header) lines.push(`*${msg.header}*`);
+  if (msg.body) lines.push(msg.body);
+  if (msg.options.length) {
+    lines.push("");
+    msg.options.forEach((o, i) => lines.push(`${i + 1}. ${o.label}`));
+    lines.push("");
+    lines.push(`_Reply with the number of your choice._`);
+  }
+  return lines.join("\n");
+}
+
 /** Minimal WhatsApp text formatting -> HTML, for the live preview only. */
 export function waToHtml(text: string): string {
   const esc = text
