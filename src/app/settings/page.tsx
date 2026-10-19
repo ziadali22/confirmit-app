@@ -1,10 +1,18 @@
 import Shell from "@/components/Shell";
+import Icon, { type IconName } from "@/components/Icon";
+import ConnectNumber from "@/components/ConnectNumber";
+import CopyField from "@/components/CopyField";
 import { getBrand } from "@/lib/db";
 import { saveSettings } from "@/app/actions";
 import { headers } from "next/headers";
-import ConnectNumber from "@/components/ConnectNumber";
 
 export const dynamic = "force-dynamic";
+
+const METHODS: { mode: string; title: string; icon: IconName; text: string }[] = [
+  { mode: "baileys", title: "Your own number", icon: "qr", text: "Link with a QR code, like WhatsApp Web. Keeps working on your phone." },
+  { mode: "meta", title: "Meta Cloud API", icon: "shield", text: "Official API. Needs a spare number registered with Meta." },
+  { mode: "mock", title: "Mock mode", icon: "flask", text: "Simulates sends so you can test without messaging anyone." },
+];
 
 export default async function SettingsPage() {
   const brand = await getBrand();
@@ -15,45 +23,104 @@ export default async function SettingsPage() {
 
   return (
     <Shell>
-      <h1>WhatsApp connection</h1>
-      <p className="sub">Choose how messages go out: your own number (QR), the official Meta API, or mock mode for testing.</p>
-
-      <ConnectNumber initialMode={brand.waMode} />
-
-      <form action={saveSettings}>
-        <div className="card">
-          <h2>Your store</h2>
-          <div className="row">
-            <div style={{ flex: 1 }}><label>Store name</label><input type="text" name="name" defaultValue={brand.name} /></div>
-            <div style={{ flex: 1 }}><label>Your WhatsApp number (sender)</label><input type="text" name="whatsappNumber" defaultValue={brand.whatsappNumber} placeholder="+2015..." /></div>
+      <div className="stack" style={{ gap: 28 }}>
+        <div className="page-head">
+          <div>
+            <h1>Settings</h1>
+            <p className="sub">How messages are sent, your store details and the Meta connection.</p>
           </div>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14 }}>
-            <input type="checkbox" name="mock" defaultChecked={brand.mock} style={{ width: "auto" }} />
-            Mock mode (simulate sends — turn OFF to send real WhatsApp messages)
-          </label>
+          <button className="btn primary" form="settings-form">Save settings</button>
         </div>
 
-        <div className="card">
-          <h2>Meta WhatsApp Cloud API (for live sending)</h2>
-          <p className="hint" style={{ marginTop: -6 }}>Get these from Meta → WhatsApp → API Setup. Your sender number must be registered there (it then leaves the normal WhatsApp app — use a spare number).</p>
-          <div className="row">
-            <div style={{ flex: 1 }}><label>Phone number ID</label><input type="text" name="phoneNumberId" defaultValue={brand.phoneNumberId} placeholder="1234567890" /></div>
-            <div style={{ flex: 1 }}><label>App secret</label><input type="text" name="appSecret" defaultValue={brand.appSecret} placeholder="for webhook signature" /></div>
+        <section className="section">
+          <header>
+            <h2>WhatsApp connection</h2>
+            <p className="sub" style={{ fontSize: 13 }}>How messages go out right now.</p>
+          </header>
+          <div className="card">
+            <div className="methods">
+              {METHODS.map((m) => (
+                <div key={m.mode} className={`method${brand.waMode === m.mode ? " on" : ""}`}>
+                  <div className="mh"><Icon name={m.icon} size={18} /> {m.title}<span className="radio" /></div>
+                  <p>{m.text}</p>
+                </div>
+              ))}
+            </div>
+            <ConnectNumber initialMode={brand.waMode} />
+            {brand.waMode === "baileys" && (
+              <div className="callout warn">
+                <Icon name="alert" />
+                <div><b>Unofficial method</b>Automated or bulk sending from a personal number can get it banned by WhatsApp. Use the Meta Cloud API for high volume.</div>
+              </div>
+            )}
           </div>
-          <label>Access token {brand.accessToken && <span className="hint">(saved — leave blank to keep)</span>}</label>
-          <input type="password" name="accessToken" placeholder={brand.accessToken ? "••••••••••••" : "EAAG..."} />
-        </div>
+        </section>
 
-        <button className="btn green">Save settings</button>
-      </form>
+        <form id="settings-form" action={saveSettings} className="stack" style={{ gap: 28 }}>
+        <section className="section">
+          <header>
+            <h2>Store</h2>
+            <p className="sub" style={{ fontSize: 13 }}>Shown in messages as <code>{"{shopName}"}</code>, and used as the sender.</p>
+          </header>
+          <div className="card">
+            <div className="grid-2">
+              <div className="field"><label>Store name</label><input type="text" name="name" defaultValue={brand.name} /></div>
+              <div className="field">
+                <label>Sender WhatsApp number</label>
+                <input type="text" name="whatsappNumber" defaultValue={brand.whatsappNumber} placeholder="+2015…" />
+                <p className="hint">Include the country code.</p>
+              </div>
+            </div>
+            <label className="switch-row">
+              <span>
+                <b>Mock mode</b>
+                <span className="hint">Simulate sends. Turn off to send real WhatsApp messages through Meta.</span>
+              </span>
+              <input type="checkbox" name="mock" className="switch" defaultChecked={brand.mock} />
+            </label>
+          </div>
+        </section>
 
-      <div className="card" style={{ marginTop: 18 }}>
-        <h2>Webhook (paste into Meta)</h2>
-        <label>Callback URL</label>
-        <input type="text" readOnly value={webhookUrl} />
-        <label>Verify token</label>
-        <input type="text" readOnly value={brand.verifyToken || "(save settings once to generate)"} />
-        <p className="hint">Localhost can’t receive Meta’s callbacks — expose it with <code>cloudflared tunnel --url http://localhost:3000</code> or ngrok, then use that HTTPS URL. For the list message to deliver, the customer must message you first (opens the 24-hour window).</p>
+        <section className="section" id="meta">
+          <header>
+            <h2>Meta WhatsApp Cloud API</h2>
+            <p className="sub" style={{ fontSize: 13 }}>For live sending through Meta. Find these in Meta → WhatsApp → API Setup.</p>
+          </header>
+          <div className="card">
+            <div className="grid-2">
+              <div className="field"><label>Phone number ID</label><input type="text" name="phoneNumberId" defaultValue={brand.phoneNumberId} placeholder="1234567890" /></div>
+              <div className="field"><label>App secret</label><input type="text" name="appSecret" defaultValue={brand.appSecret} placeholder="For the webhook signature" /></div>
+            </div>
+            <div className="field">
+              <label>Access token {brand.accessToken && <span className="counter">Saved. Leave blank to keep it.</span>}</label>
+              <input type="password" name="accessToken" placeholder={brand.accessToken ? "••••••••••••" : "EAAG…"} autoComplete="off" />
+            </div>
+            <div className="callout info">
+              <Icon name="info" />
+              <div>Your sender number must be registered with Meta. Once registered it leaves the normal WhatsApp app, so use a spare number.</div>
+            </div>
+          </div>
+        </section>
+
+        </form>
+
+        <section className="section">
+          <header>
+            <h2>Webhook</h2>
+            <p className="sub" style={{ fontSize: 13 }}>Paste these into Meta so customer replies reach Confirm It.</p>
+          </header>
+          <div className="card">
+            <CopyField label="Callback URL" value={webhookUrl} />
+            <CopyField label="Verify token" value={brand.verifyToken || "Save settings once to generate"} />
+            <div className="callout info">
+              <Icon name="info" />
+              <div>
+                A list message only delivers after the customer has messaged you, which opens WhatsApp’s 24-hour window.
+                Testing locally? Meta can’t reach localhost, so expose it with <code>cloudflared tunnel --url http://localhost:3000</code> and use that HTTPS URL.
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </Shell>
   );

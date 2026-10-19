@@ -1,37 +1,19 @@
-"use client";
+import { prisma, getBrand } from "@/lib/db";
+import SideNav from "@/components/SideNav";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { logoutAction } from "@/app/actions";
-
-const NAV = [
-  { href: "/", label: "Orders" },
-  { href: "/message", label: "Message" },
-  { href: "/campaigns", label: "Campaigns" },
-  { href: "/customers", label: "Customers" },
-  { href: "/settings", label: "Settings" },
-];
-
-export default function Shell({ children }: { children: React.ReactNode }) {
-  const path = usePathname();
-  const isActive = (href: string) => (href === "/" ? path === "/" || path.startsWith("/orders") : path.startsWith(href));
+// Server wrapper: loads the store once so the sidebar can show the sender,
+// the awaiting-reply count and how messages are being sent.
+export default async function Shell({ children }: { children: React.ReactNode }) {
+  const brand = await getBrand();
+  const awaiting = await prisma.order.count({ where: { brandId: brand.id, status: "confirming" } });
   return (
     <div className="layout">
-      <aside className="side">
-        <div className="brand"><span className="logo">✓</span> Confirm It</div>
-        <nav>
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={isActive(n.href) ? "active" : ""}>
-              {n.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="foot">
-          <form action={logoutAction}>
-            <button className="btn ghost sm" style={{ width: "100%" }}>Log out</button>
-          </form>
-        </div>
-      </aside>
+      <SideNav
+        storeName={brand.name}
+        sender={brand.whatsappNumber}
+        waMode={brand.waMode}
+        awaiting={awaiting}
+      />
       <main className="main">{children}</main>
     </div>
   );

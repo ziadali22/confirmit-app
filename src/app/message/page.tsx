@@ -17,8 +17,6 @@ export default async function MessagePage() {
   };
   return (
     <Shell>
-      <h1>Confirmation message</h1>
-      <p className="sub">Full control over what customers receive. Use placeholders like <code>{"{firstName}"}</code> — they fill in per order.</p>
       <MessageBuilder initial={initial} />
     </Shell>
   );
