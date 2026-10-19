@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "prisma generate && next build --turbopack",
-    "start": "next start -p ${PORT:-3000}",
+    "start": "prisma migrate deploy && next start -p ${PORT:-3000}",
     "release": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "lint": "eslint"
